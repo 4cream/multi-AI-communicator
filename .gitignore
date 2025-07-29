@@ -1,0 +1,74 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+*.egg-info/
+.Python/
+
+# Distribution / packaging
+.cache/
+build/
+dist/
+eggs/
+*.egg
+parts/
+sdist/
+var/
+wheels/
+*.whl
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs and editors
+.idea/                  # JetBrains IDEs (PyCharm, IntelliJ)
+.vscode/                # VS Code
+*.iml                   # IntelliJ IDEA module files
+*.ipr                   # IntelliJ IDEA project files
+*.iws                   # IntelliJ IDEA workspace files
+.project                # Eclipse
+.pydevproject           # PyDev
+
+# Operating System Files
+.DS_Store               # macOS
+Thumbs.db               # Windows
+Desktop.ini             # Windows
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db.sqlite3
+
+# Specific to Python data science / AI
+# Jupyter Notebook files
+.ipynb_checkpoints/
+# Data files (often large and shouldn't be versioned)
+data/
+# Model files (can be very large and should often be tracked via Git LFS or excluded)
+models/
+checkpoints/
+*.pt                    # PyTorch model files
+*.pth                   # PyTorch model files
+*.h5                    # Keras/TensorFlow HDF5 models
+*.onnx                  # ONNX models
+*.tflite                # TensorFlow Lite models
+
+# Environment variables
+.env                    # Common for environment variables
+.flaskenv
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Miscellaneous
+*~                      # Backup files
+*.bak                   # Backup files
+*.swp                   # Vim swap files
+.DS_Store
