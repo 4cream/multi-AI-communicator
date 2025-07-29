@@ -20,7 +20,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 # --- 3. Configurar las APIs con tus claves ---
 
-# Gemini (CAMBIOS AQUÍ)
+# Gemini
 gemini_model = None
 if GEMINI_API_KEY:
     try:
@@ -29,45 +29,38 @@ if GEMINI_API_KEY:
 
         chosen_model_found = False
         available_gemini_models = []
-        print("\n--- Verificando Modelos de Gemini Disponibles ---") # Debugging
         for m in genai.list_models():
-            # Simplificamos la verificación. Si soporta generateContent, debería funcionar para texto.
-            # Los modelos más nuevos (1.5/2.5) suelen soportar chat a través de generateContent.
             if 'generateContent' in m.supported_generation_methods: 
                 available_gemini_models.append(m.name)
-                print(f"- {m.name}") # Mostrar todos los compatibles encontrados
-
-        print("-----------------------------------") # Debugging
-
+        
         if PREFERRED_GEMINI_MODEL in available_gemini_models:
             gemini_model = genai.GenerativeModel(PREFERRED_GEMINI_MODEL)
             chosen_model_found = True
-            print(f"Gemini configurado con éxito usando: {gemini_model.model_name}")
         else:
-            # Si el modelo preferido no se encontró o no soporta generateContent, buscar un alternativo
-            print(f"Advertencia: El modelo preferido '{PREFERRED_GEMINI_MODEL}' no se encontró o no soporta generateContent.")
             for model_name in available_gemini_models:
-                if 'gemini' in model_name.lower(): # Buscamos cualquier modelo Gemini que funcione
+                if 'gemini' in model_name.lower() and 'generateContent' in genai.get_model(model_name).supported_generation_methods:
                     gemini_model = genai.GenerativeModel(model_name)
                     chosen_model_found = True
-                    print(f"Usando modelo alternativo: {model_name}")
                     break
             
-            if not chosen_model_found:
-                print(f"Error: No se encontró ningún modelo Gemini compatible. Gemini no estará disponible.")
+        if gemini_model:
+            print(f"Gemini configurado con éxito usando: {gemini_model.model_name}")
+        else:
+            print(f"Error: No se encontró ningún modelo Gemini compatible.")
 
     except Exception as e:
         print(f"Error al configurar Gemini: {e}")
-        gemini_model = None # Asegurarse de que sea None en caso de error
+        gemini_model = None
 else:
     print("Advertencia: GEMINI_API_KEY no encontrada.")
 
 
-# OpenAI (No hay cambios significativos aquí)
+# OpenAI
 openai_client = None
 if OPENAI_API_KEY:
     try:
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        print("OpenAI (ChatGPT) configurado con éxito.")
     except Exception as e:
         print(f"Error al configurar OpenAI: {e}")
         openai_client = None
@@ -81,6 +74,7 @@ claude_client = None
 #     try:
 #         from anthropic import Anthropic
 #         claude_client = Anthropic(api_key=CLAUDE_API_KEY)
+#         print("Anthropic (Claude) configurado con éxito.")
 #     except Exception as e:
 #         print(f"Error al configurar Anthropic: {e}")
 #         claude_client = None
@@ -91,7 +85,7 @@ deepseek_client = None
 #     try:
 #         # from openai import OpenAI as DeepSeekOpenAIClient
 #         # deepseek_client = DeepSeekOpenAIClient(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com/v1")
-#         pass
+#         print("DeepSeek configurado con éxito.")
 #     except Exception as e:
 #         print(f"Error al configurar DeepSeek: {e}")
 #         deepseek_client = None
@@ -99,19 +93,14 @@ deepseek_client = None
 
 # --- 4. Funciones Asíncronas para obtener respuestas de cada IA (usan asyncio.to_thread) ---
 
-# Gemini (Revertimos a un enfoque más simple para el system_prompt en generate_content)
 async def get_gemini_response(prompt, system_prompt=None):
     if not gemini_model:
         return "Gemini no configurado o modelo no disponible."
     try:
-        # Para modelos Gemini 1.5/2.5 con generate_content y system_prompt,
-        # la forma más robusta es inyectar el system_prompt directamente en el prompt.
-        # Crear una nueva sesión de chat temporal por cada llamada es costoso
-        # y no es el uso principal de generate_content.
-        
         full_prompt = prompt
         if system_prompt:
-            # Una forma efectiva de infundir el rol es al principio del prompt
+            # Para Gemini, inyectamos el system_prompt al inicio del prompt principal
+            # ya que generate_content no tiene un parámetro 'system' directo como chat.completions
             full_prompt = f"INSTRUCCIÓN DE SISTEMA PARA EL ROL: {system_prompt}\n\n" \
                           f"Aquí está la tarea principal y el contexto:\n{prompt}"
 
@@ -142,7 +131,6 @@ async def get_openai_response(prompt, system_prompt=None):
     except Exception as e:
         return f"OpenAI Error: {e}"
 
-# Función para Claude (por implementar de forma async usando asyncio.to_thread)
 async def get_claude_response(prompt, system_prompt=None):
     if not claude_client:
         return "Claude no configurado."
@@ -164,7 +152,6 @@ async def get_claude_response(prompt, system_prompt=None):
     except Exception as e:
         return f"Claude Error: {e}"
 
-# Función para DeepSeek (por implementar de forma async usando asyncio.to_thread)
 async def get_deepseek_response(prompt, system_prompt=None):
     if not deepseek_client:
         return "DeepSeek no configurado."
@@ -212,12 +199,82 @@ def log_conversation(prompt, responses, mode="comparacion"):
         f.write("=" * 60 + "\n\n")
     print(f"Conversación guardada en {log_file_path}")
 
+# --- Definición de Presets de Flujo de Trabajo (¡ACTUALIZADO!) ---
+WORKFLOW_PRESETS = {
+    "1": {
+        "description": "Estrategia de Apuestas Deportivas: Gemini analiza, OpenAI detalla el plan.",
+        "chain": [
+            {
+                "ia_name": "gemini", 
+                "system_instruction": "Eres un experto en gestión de riesgos y estrategias de inversión en mercados volátiles, incluyendo apuestas deportivas. Tu objetivo es proporcionar un análisis inicial conciso y estratégico.", 
+                "task_description": "Analiza la pregunta inicial sobre cómo gestionar $50 en apuestas deportivas. Ofrece una estrategia inicial para la gestión del dinero, enfocándote en la disciplina, el tamaño de las apuestas y la gestión del riesgo."
+            },
+            {
+                "ia_name": "openai", 
+                "system_instruction": "Eres un planificador de estrategias y un comunicador claro. Tu objetivo es tomar un análisis previo y expandirlo en pasos accionables y detallados para un público general.", 
+                "task_description": "Basándote en la estrategia inicial proporcionada, detalla 3-5 pasos concretos y un plan de acción para implementar esa gestión de $50 en apuestas deportivas. Incluye consejos prácticos y un ejemplo de cómo se podría aplicar."
+            }
+        ]
+    },
+    "2": {
+        "description": "Resumen y Crítica: OpenAI resume, Gemini ofrece puntos de mejora.",
+        "chain": [
+            {
+                "ia_name": "openai", 
+                "system_instruction": "Eres un resumidor experto y conciso. Tu objetivo es extraer la esencia de un texto.", 
+                "task_description": "Resume el siguiente texto en 50 palabras, extrayendo las ideas principales."
+            },
+            {
+                "ia_name": "gemini", 
+                "system_instruction": "Eres un crítico constructivo y analítico. Tu objetivo es identificar áreas de mejora en un texto.", 
+                "task_description": "Analiza el resumen proporcionado e identifica 3 posibles puntos débiles o áreas de mejora en el texto original, justificando tu crítica."
+            }
+        ]
+    },
+    "3": {
+        "description": "Brainstorming y Filtro: Gemini genera conceptos, OpenAI los filtra por viabilidad.",
+        "chain": [
+            {
+                "ia_name": "gemini", 
+                "system_instruction": "Eres un generador de ideas creativo y original. Tu objetivo es proponer conceptos diversos.", 
+                "task_description": "Genera una lista de 5 ideas creativas sobre cómo reciclar materiales comunes en el hogar."
+            },
+            {
+                "ia_name": "openai", 
+                "system_instruction": "Eres un evaluador práctico y un optimizador de procesos. Tu objetivo es discernir la viabilidad y el impacto.", 
+                "task_description": "Evalúa las ideas recibidas en términos de viabilidad práctica y potencial impacto ambiental. Elimina las menos viables y ordena las restantes de mayor a menor impacto, con una breve justificación."
+            }
+        ]
+    },
+    # Puedes añadir más presets aquí.
+}
+
+
 # --- 6. Función para el Modo de Conversación Encadenada ---
 async def run_chained_conversation():
     print("\n--- Modo de Conversación Encadenada ---")
-    print("Este modo permite encadenar IAs, pasando la salida de una como entrada a la siguiente.")
-    print("Cada IA puede tener un 'rol' específico para guiar su respuesta.")
+    print("Elige un flujo de trabajo predefinido para encadenar las IAs.")
 
+    # Mostrar presets disponibles
+    print("\n--- Flujos de Trabajo Predefinidos ---")
+    for key, preset in WORKFLOW_PRESETS.items():
+        print(f"{key}. {preset['description']}")
+    print("---------------------------------------")
+    print("(Escribe 'salir' para volver al menú principal)")
+
+    while True:
+        preset_choice = input("Selecciona un número de preset: ").strip()
+        if preset_choice.lower() == 'salir':
+            return # Salir del modo encadenado
+
+        selected_preset = WORKFLOW_PRESETS.get(preset_choice)
+        if selected_preset:
+            break
+        else:
+            print("Selección inválida. Por favor, elige un número de preset válido.")
+
+    chain_definition = selected_preset["chain"]
+    
     available_ais_info = {
         "gemini": {"func": get_gemini_response, "active": bool(gemini_model)},
         "openai": {"func": get_openai_response, "active": bool(openai_client)},
@@ -225,48 +282,15 @@ async def run_chained_conversation():
         # "deepseek": {"func": get_deepseek_response, "active": bool(deepseek_client)},
     }
 
-    active_ais_names = [name for name, info in available_ais_info.items() if info["active"]]
+    # Verificar que todas las IA en el preset seleccionado estén activas
+    for step in chain_definition:
+        ia_name = step["ia_name"]
+        if ia_name not in available_ais_info or not available_ais_info[ia_name]["active"]:
+            print(f"Error: La IA '{ia_name}' requerida por este preset no está configurada o activa. Volviendo al menú principal.")
+            return
 
-    if not active_ais_names:
-        print("¡Atención! No hay IAs configuradas y disponibles para el modo encadenado.")
-        return
-
-    print(f"IAs activas para la cadena: {', '.join(active_ais_names)}")
-
-    print("\nDefine tu cadena de IA y sus roles. Ejemplo:")
-    print("  Gemini:Analiza la idea y genera preguntas clave.")
-    print("  OpenAI:Responde a las preguntas clave basándose en el análisis anterior.")
-    print("  (Escribe 'salir' para terminar la configuración de la cadena)")
-
-    chain_definition = []
-    step_num = 1
-    while True:
-        step_input = input(f"Paso {step_num} (IA_nombre:Rol_o_Instruccion, ej. Gemini:Analista, o 'salir'): ").strip()
-        if step_input.lower() == 'salir':
-            break
-
-        if ':' not in step_input:
-            print("Formato incorrecto. Usa IA_nombre:Rol_o_Instruccion.")
-            continue
-
-        ia_name, role = step_input.split(':', 1)
-        ia_name = ia_name.lower().strip()
-        role = role.strip()
-
-        if ia_name not in active_ais_names:
-            print(f"Error: '{ia_name}' no es una IA activa o válida. Intenta de nuevo.")
-            continue
-
-        chain_definition.append({"ia_name": ia_name, "role": role})
-        step_num += 1
-
-    if not chain_definition:
-        print("No se definió ninguna cadena. Volviendo al menú principal.")
-        return
-
-    initial_prompt = input("\nDame el prompt inicial para la cadena: ")
-    max_turns_input = input("Máximo de turnos en la cadena (Enter para 5 turnos): ")
-    max_turns = int(max_turns_input) if max_turns_input.isdigit() else 5
+    initial_prompt = input("\nDame el prompt inicial para este flujo de trabajo: ")
+    max_turns = len(chain_definition) # El número de turnos es el número de pasos en la cadena definida
 
     current_context = initial_prompt
     full_conversation_log = []
@@ -280,23 +304,27 @@ async def run_chained_conversation():
             break
 
         ia_name = step_config["ia_name"]
-        ia_role = step_config["role"]
+        ia_system_instruction = step_config["system_instruction"] # NUEVO: La instrucción de sistema/persona
+        ia_task_description = step_config["task_description"]     # NUEVO: La descripción de la tarea específica
         ia_func = available_ais_info[ia_name]["func"]
 
         # Construir el prompt para la IA actual
+        # Ahora el prompt principal se enfoca en la pregunta del usuario y el contexto,
+        # y la "tarea_específica" le dice qué hacer con eso.
         prompt_for_current_ia = (
-            f"La pregunta original que inició el proceso es: '{initial_prompt}'\n\n"
-            f"Tu rol en este paso de la conversación es: {ia_role}\n\n"
-            f"El contexto y la información recibida del paso anterior es:\n{current_context}\n\n"
-            "Basándote en todo lo anterior, genera tu respuesta o análisis."
+            f"PREGUNTA INICIAL DEL USUARIO: '{initial_prompt}'\n\n"
+            f"CONTEXTO PREVIO Y RESPUESTA ANTERIOR:\n{current_context}\n\n"
+            f"TU TAREA ES: {ia_task_description}\n\n"
+            "Genera tu respuesta o análisis."
         )
 
-        print(f"\n=== Paso {i + 1}: {ia_name} (Rol: {ia_role}) ===")
+        print(f"\n=== Paso {i + 1}: {ia_name.upper()} (Tarea: {ia_task_description}) ===") # Muestra la tarea en el output
         print(f"Prompt enviado: '{textwrap.shorten(prompt_for_current_ia, width=100, placeholder='...')}'")
 
-        response_text = await ia_func(prompt_for_current_ia, system_prompt=ia_role)
+        # Se pasa la 'system_instruction' como system_prompt a la función de la IA
+        response_text = await ia_func(prompt_for_current_ia, system_prompt=ia_system_instruction) 
 
-        print(f"Respuesta de {ia_name}:\n{textwrap.fill(response_text, width=80)}")
+        print(f"Respuesta de {ia_name.upper()}:\n{textwrap.fill(response_text, width=80)}")
         print(f"Longitud: {len(response_text)} caracteres")
         print("-" * 40)
 
@@ -305,14 +333,9 @@ async def run_chained_conversation():
             "prompt_sent": prompt_for_current_ia,
             "response_text": response_text
         })
-        current_context = response = response_text
+        current_context = response_text
 
-        if i < len(chain_definition) -1:
-            continue_choice = input("¿Continuar al siguiente paso en la cadena? (s/n, o Enter para continuar): ").lower().strip()
-            if continue_choice == 'n':
-                print("\n--- Usuario decidió finalizar la cadena. ---")
-                break
-        else:
+        if i == len(chain_definition) - 1:
             print("\n--- Todas las IAs de la cadena definida han respondido. Finalizando cadena. ---")
             break
 
