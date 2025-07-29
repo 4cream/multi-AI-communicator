@@ -25,7 +25,7 @@ gemini_model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        PREFERRED_GEMINI_MODEL = 'models/gemini-1.5-pro-latest'
+        PREFERRED_GEMINI_MODEL = 'models/gemini-2.5-flash-lite'
 
         chosen_model_found = False
         available_gemini_models = []
