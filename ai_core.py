@@ -22,7 +22,7 @@ if GEMINI_API_KEY:
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
         # Lista de modelos preferidos en orden de preferencia
-        preferred_models = ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-flash-latest']
+        preferred_models = ['models/gemini-2.5-flash-lite', 'models/gemini-2.5-flash-lite']
         
         model_to_use = None
         for model in preferred_models:
@@ -79,7 +79,7 @@ async def get_openai_response(prompt, system_prompt=None):
         messages.append({"role": "user", "content": prompt})
         response = await asyncio.to_thread(
             openai_client.chat.completions.create,
-            model="gpt-3.5-turbo",
+            model="o4-mini-2025-04-16",
             messages=messages
         )
         return response.choices[0].message.content
