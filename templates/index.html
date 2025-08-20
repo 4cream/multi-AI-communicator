@@ -9,13 +9,27 @@
         h1, h2 { color: #333; }
         textarea, select { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; margin-bottom: 1em; }
         .btn { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
-        #preset-select { display: none; margin-top: 1em; } /* Oculto por defecto y con un margen */
-        .result-block { background: #f8f9fa; padding: 1.5em; margin-bottom: 1em; border-radius: 5px; border-left: 5px solid #007bff; }
+        #preset-select { display: none; margin-top: 1em; }
+        .result-block { position: relative; background: #f8f9fa; padding: 1.5em; margin-bottom: 1em; border-radius: 5px; border-left: 5px solid #007bff; }
         .result-block h3 { margin-top: 0; }
         pre { white-space: pre-wrap; word-wrap: break-word; font-family: "Menlo", "Consolas", monospace; font-size: 14px; }
         .loader { text-align: center; padding: 2em; font-size: 1.2em; color: #555; display: none; }
         .blinking-cursor { display: inline-block; background-color: #333; width: 8px; height: 1em; animation: blink 1s step-end infinite; }
         @keyframes blink { from, to { background-color: transparent } 50% { background-color: #333; } }
+        
+        .copy-btn {
+            position: absolute; top: 10px; right: 10px; background-color: #6c757d;
+            color: white; border: none; border-radius: 4px; padding: 5px 10px;
+            cursor: pointer; font-size: 12px; opacity: 0.7; transition: opacity 0.2s, background-color 0.2s;
+        }
+        .copy-btn:hover { opacity: 1; }
+        .copy-btn.copied { background-color: #28a745; }
+        /* --- NUEVO ESTILO PARA EL BOTÓN DESACTIVADO --- */
+        .copy-btn:disabled {
+            background-color: #adb5bd;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
@@ -23,10 +37,8 @@
         <h1>Multi-AI Communicator 🤖</h1>
         <form id="ai-form">
             <textarea name="prompt" rows="5" placeholder="Escribe tu pregunta aquí..." required></textarea>
-            
             <input type="radio" id="comp" name="mode" value="comparison" checked> <label for="comp">Modo Comparación</label>
             <input type="radio" id="chain" name="mode" value="chained"> <label for="chain">Modo Encadenado</label>
-            
             <select name="preset" id="preset-select">
                 {% for key, preset in presets.items() %}
                 <option value="{{ key }}">{{ preset.description }}</option>
@@ -73,11 +85,15 @@
             eventSource.onmessage = function(event) {
                 loader.style.display = 'none';
                 const data = JSON.parse(event.data);
+                const currentMode = document.querySelector('input[name="mode"]:checked').value;
 
                 if (data.status === 'all_done') {
                     console.log("Stream finalizado.");
                     eventSource.close();
                     document.querySelectorAll('.blinking-cursor').forEach(c => c.remove());
+                    // --- MEJORA: Habilitamos los botones de copiar al final ---
+                    document.querySelectorAll('.copy-btn').forEach(btn => btn.disabled = false);
+                    addCopyFunctionality();
                     return;
                 }
 
@@ -87,14 +103,18 @@
                 }
 
                 if (data.error) {
-                    updateAIResult(data.step, data.error, true);
+                    const identifier = currentMode === 'chained' ? data.step : (data.ai || 'Error');
+                    updateAIResult(identifier, data.error, true);
                     return;
                 }
                 
+                // --- CORRECCIÓN DEL BUG: Usamos un identificador diferente para cada modo ---
                 if (data.simulated) {
-                    typewriterEffect(data.step, data.full_text);
+                    const identifier = currentMode === 'chained' ? data.step : data.ai;
+                    typewriterEffect(identifier, data.full_text);
                 } else if (data.text) {
-                    updateAIResult(data.step, data.text);
+                    const identifier = currentMode === 'chained' ? data.step : data.ai;
+                    updateAIResult(identifier, data.text);
                 }
             };
 
@@ -106,10 +126,14 @@
         });
 
         function createResultBlock(aiName, title, step) {
-            const uniqueId = step ? `pre-step-${step}` : `pre-${aiName}`;
+            const uniqueId = step ? `step-${step}` : aiName;
             const block = document.createElement('div');
             block.className = 'result-block';
-            block.innerHTML = `<h3>${title}</h3><pre id="${uniqueId}"><span class="blinking-cursor"></span></pre>`;
+            // --- MEJORA: Añadimos 'disabled' al botón por defecto ---
+            block.innerHTML = `
+                <button class="copy-btn" data-target-id="pre-${uniqueId}" disabled>Copiar</button>
+                <h3>${title}</h3>
+                <pre id="pre-${uniqueId}"><span class="blinking-cursor"></span></pre>`;
             resultsContainer.appendChild(block);
         }
 
@@ -121,13 +145,10 @@
             const id = (typeof stepOrAiName === 'number') ? `pre-step-${stepOrAiName}` : `pre-${stepOrAiName}`;
             const preElement = document.getElementById(id);
             if (!preElement) return;
-
             const cursor = preElement.querySelector('.blinking-cursor');
             if (cursor) cursor.remove();
-            
             if (isError) preElement.style.color = 'red';
             preElement.textContent += textChunk;
-            
             if (!isError) {
                 const newCursor = document.createElement('span');
                 newCursor.className = 'blinking-cursor';
@@ -135,14 +156,12 @@
             }
         }
 
-        function typewriterEffect(step, fullText) {
-            const id = `pre-step-${step}`;
+        function typewriterEffect(stepOrAiName, fullText) {
+            const id = (typeof stepOrAiName === 'number') ? `pre-step-${stepOrAiName}` : `pre-${stepOrAiName}`;
             const preElement = document.getElementById(id);
             if (!preElement) return;
-
             const cursor = preElement.querySelector('.blinking-cursor');
             if (cursor) cursor.remove();
-
             let i = 0;
             const speed = 2;
             const charsPerInterval = 10;
@@ -158,6 +177,33 @@
                     preElement.appendChild(newCursor);
                 }
             }, speed);
+        }
+
+        function addCopyFunctionality() {
+            const copyButtons = document.querySelectorAll('.copy-btn');
+            copyButtons.forEach(btn => {
+                // Remove existing listener to avoid duplicates
+                const newBtn = btn.cloneNode(true);
+                btn.parentNode.replaceChild(newBtn, btn);
+
+                newBtn.addEventListener('click', () => {
+                    const targetId = newBtn.dataset.targetId;
+                    const targetPre = document.getElementById(targetId);
+                    if (targetPre) {
+                        navigator.clipboard.writeText(targetPre.textContent).then(() => {
+                            const originalText = newBtn.textContent;
+                            newBtn.textContent = '¡Copiado!';
+                            newBtn.classList.add('copied');
+                            setTimeout(() => {
+                                newBtn.textContent = originalText;
+                                newBtn.classList.remove('copied');
+                            }, 2000);
+                        }).catch(err => {
+                            console.error('Error al copiar texto: ', err);
+                        });
+                    }
+                });
+            });
         }
     </script>
 </body>
