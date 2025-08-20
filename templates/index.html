@@ -9,9 +9,9 @@
         h1, h2 { color: #333; }
         textarea, select { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; margin-bottom: 1em; }
         .btn { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
-        .btn:hover { background-color: #0056b3; }
-        #results-container { margin-top: 2em; }
+        #preset-select { display: none; margin-top: 1em; } /* Oculto por defecto y con un margen */
         .result-block { background: #f8f9fa; padding: 1.5em; margin-bottom: 1em; border-radius: 5px; border-left: 5px solid #007bff; }
+        .result-block h3 { margin-top: 0; }
         pre { white-space: pre-wrap; word-wrap: break-word; font-family: "Menlo", "Consolas", monospace; font-size: 14px; }
         .loader { text-align: center; padding: 2em; font-size: 1.2em; color: #555; display: none; }
         .blinking-cursor { display: inline-block; background-color: #333; width: 8px; height: 1em; animation: blink 1s step-end infinite; }
@@ -23,9 +23,11 @@
         <h1>Multi-AI Communicator 🤖</h1>
         <form id="ai-form">
             <textarea name="prompt" rows="5" placeholder="Escribe tu pregunta aquí..." required></textarea>
+            
             <input type="radio" id="comp" name="mode" value="comparison" checked> <label for="comp">Modo Comparación</label>
-            <input type="radio" id="chain" name="mode" value="chained" disabled> <label for="chain" style="color: #999;">Modo Encadenado (Próximamente)</label>
-            <select name="preset">
+            <input type="radio" id="chain" name="mode" value="chained"> <label for="chain">Modo Encadenado</label>
+            
+            <select name="preset" id="preset-select">
                 {% for key, preset in presets.items() %}
                 <option value="{{ key }}">{{ preset.description }}</option>
                 {% endfor %}
@@ -33,7 +35,6 @@
             <br><br>
             <button type="submit" class="btn">Enviar a las IAs</button>
         </form>
-
         <div class="loader" id="loader">Esperando respuesta... ⏳</div>
         <div id="results-container"></div>
     </div>
@@ -42,67 +43,83 @@
         const form = document.getElementById('ai-form');
         const resultsContainer = document.getElementById('results-container');
         const loader = document.getElementById('loader');
+        const presetSelect = document.getElementById('preset-select');
         let eventSource;
+
+        document.querySelectorAll('input[name="mode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                presetSelect.style.display = e.target.value === 'chained' ? 'block' : 'none';
+            });
+        });
 
         form.addEventListener('submit', (event) => {
             event.preventDefault();
-            if (eventSource) {
-                eventSource.close();
-            }
+            if (eventSource) eventSource.close();
+            
             loader.style.display = 'block';
             resultsContainer.innerHTML = '<h2>Resultados:</h2>';
-            createResultBlocks(['Gemini', 'OpenAI']);
-
+            
             const formData = new FormData(form);
-            const prompt = encodeURIComponent(formData.get('prompt'));
             const mode = formData.get('mode');
-            const preset = formData.get('preset');
 
+            if (mode === 'comparison') {
+                createResultBlocks(['Gemini', 'OpenAI']);
+            }
+
+            const prompt = encodeURIComponent(formData.get('prompt'));
+            const preset = formData.get('preset');
             eventSource = new EventSource(`/api/stream_query?prompt=${prompt}&mode=${mode}&preset=${preset}`);
 
             eventSource.onmessage = function(event) {
                 loader.style.display = 'none';
                 const data = JSON.parse(event.data);
 
-                // --- LÓGICA DE CIERRE MEJORADA ---
                 if (data.status === 'all_done') {
-                    console.log("Stream finalizado por el servidor. Conexión cerrada.");
+                    console.log("Stream finalizado.");
                     eventSource.close();
-                    // Quitamos los cursores parpadeantes que queden
                     document.querySelectorAll('.blinking-cursor').forEach(c => c.remove());
                     return;
                 }
 
+                if (data.status === 'step_start') {
+                    createResultBlock(data.ai, `Paso ${data.step}: ${data.ai} (${data.task})`, data.step);
+                    return;
+                }
+
                 if (data.error) {
-                    updateAIResult(data.ai || 'Error', data.error, true);
+                    updateAIResult(data.step, data.error, true);
                     return;
                 }
                 
                 if (data.simulated) {
-                    typewriterEffect(data.ai, data.full_text);
+                    typewriterEffect(data.step, data.full_text);
                 } else if (data.text) {
-                    updateAIResult(data.ai, data.text);
+                    updateAIResult(data.step, data.text);
                 }
             };
 
             eventSource.onerror = function(err) {
-                console.error("Error de EventSource (la conexión puede haberse cerrado):", err);
+                console.error("Error de EventSource:", err);
                 eventSource.close();
                 loader.style.display = 'none';
             };
         });
 
-        function createResultBlocks(aiNames) {
-            aiNames.forEach(name => {
-                const block = document.createElement('div');
-                block.className = 'result-block';
-                block.innerHTML = `<h3>${name}</h3><pre id="pre-${name}"><span class="blinking-cursor"></span></pre>`;
-                resultsContainer.appendChild(block);
-            });
+        function createResultBlock(aiName, title, step) {
+            const uniqueId = step ? `pre-step-${step}` : `pre-${aiName}`;
+            const block = document.createElement('div');
+            block.className = 'result-block';
+            block.innerHTML = `<h3>${title}</h3><pre id="${uniqueId}"><span class="blinking-cursor"></span></pre>`;
+            resultsContainer.appendChild(block);
         }
 
-        function updateAIResult(aiName, textChunk, isError = false) {
-            const preElement = document.getElementById(`pre-${aiName}`);
+        function createResultBlocks(aiNames) {
+            aiNames.forEach(name => createResultBlock(name, name, null));
+        }
+
+        function updateAIResult(stepOrAiName, textChunk, isError = false) {
+            const id = (typeof stepOrAiName === 'number') ? `pre-step-${stepOrAiName}` : `pre-${stepOrAiName}`;
+            const preElement = document.getElementById(id);
             if (!preElement) return;
 
             const cursor = preElement.querySelector('.blinking-cursor');
@@ -118,17 +135,17 @@
             }
         }
 
-        function typewriterEffect(aiName, fullText) {
-            const preElement = document.getElementById(`pre-${aiName}`);
+        function typewriterEffect(step, fullText) {
+            const id = `pre-step-${step}`;
+            const preElement = document.getElementById(id);
             if (!preElement) return;
 
             const cursor = preElement.querySelector('.blinking-cursor');
             if (cursor) cursor.remove();
 
             let i = 0;
-            const speed = 2; // Velocidad ajustada para ser más rápida
-            const charsPerInterval = 10; // Añadir más caracteres a la vez
-
+            const speed = 2;
+            const charsPerInterval = 10;
             const typingInterval = setInterval(() => {
                 if (i < fullText.length) {
                     const chars_to_add = Math.min(charsPerInterval, fullText.length - i);

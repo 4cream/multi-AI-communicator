@@ -70,4 +70,37 @@ async def get_openai_response_stream(prompt):
     except Exception as e:
         yield {"ai": "OpenAI", "error": f"OpenAI Error: {repr(e)}"}
 
-WORKFLOW_PRESETS = {"1": {"description": "...", "chain": []}}
+# --- 4. WORKFLOW PRESETS (ACTUALIZADO) ---
+WORKFLOW_PRESETS = {
+    "1": {
+        "description": "Análisis y Crítica (Gemini -> OpenAI)",
+        "chain": [
+            {
+                "ia_name": "gemini", 
+                "system_instruction": "Eres un analista experto y un generador de borradores. Tu objetivo es tomar un problema o una solicitud y producir una respuesta inicial completa y bien estructurada.",
+                "task_description": "Genera una respuesta detallada o un borrador inicial basado en la pregunta del usuario."
+            },
+            {
+                "ia_name": "openai", 
+                "system_instruction": "Eres un editor y un crítico constructivo. Tu única función es revisar y mejorar el texto que se te proporciona.",
+                "task_description": "Analiza la respuesta anterior. Identifica tres puntos clave de mejora, posibles errores o áreas de expansión. Proporciona una versión refinada o una crítica constructiva."
+            }
+        ]
+    },
+    "2": {
+        "description": "Brainstorming y Filtro (OpenAI -> Gemini)",
+         "chain": [
+            {
+                "ia_name": "openai", 
+                "system_instruction": "Eres un generador de ideas creativo y sin restricciones. Tu objetivo es proponer una amplia variedad de conceptos.",
+                "task_description": "Genera una lista de 5 a 7 ideas diversas sobre el tema propuesto por el usuario."
+            },
+            {
+                "ia_name": "gemini", 
+                "system_instruction": "Eres un estratega pragmático y un evaluador. Tu objetivo es filtrar ideas basándote en la viabilidad y el impacto.",
+                "task_description": "Evalúa la lista de ideas anterior. Selecciona las 3 mejores, ordénalas por potencial y justifica brevemente tu elección."
+            }
+        ]
+    }
+    # Podemos añadir más presets aquí en el futuro.
+}
