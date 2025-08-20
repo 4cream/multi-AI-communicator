@@ -19,10 +19,19 @@ def index():
 
 
 async def stream_merger(prompt, mode, preset_key=None):
+    # --- LÓGICA NUEVA PARA ACUMULAR RESULTADOS ---
+    final_results = {}
+
     if mode == 'comparison':
         queue = asyncio.Queue()
         async def forward_stream(gen_func, p):
+            ai_name = "Gemini" if gen_func.__name__ == "get_gemini_response_stream" else "OpenAI"
+            final_results[ai_name] = "" # Inicializamos el acumulador
+            
             async for item in gen_func(p):
+                # Acumulamos el texto de cada chunk
+                if item.get("full_text"): final_results[ai_name] += item["full_text"]
+                elif item.get("text"): final_results[ai_name] += item["text"]
                 await queue.put(item)
             await queue.put({"status": "one_stream_done"})
 
@@ -44,37 +53,32 @@ async def stream_merger(prompt, mode, preset_key=None):
             return
 
         current_context = prompt
+        final_results['steps'] = []
         
         for i, step in enumerate(preset['chain']):
             ia_name = step['ia_name']
             ia_func = AI_FUNCTIONS.get(ia_name)
             step_number = i + 1
             
-            if not ia_func:
-                yield {"ai": ia_name, "error": f"Función para {ia_name} no encontrada.", "step": step_number}
-                continue
-
             yield {"status": "step_start", "step": step_number, "ai": ia_name, "task": step['task_description']}
             
-            step_prompt = f"Contexto previo: '{current_context}'\n\nTu tarea específica es: '{step['task_description']}'"
-            if i == 0:
-                step_prompt = f"Pregunta inicial del usuario: '{prompt}'\n\nTu tarea específica es: '{step['task_description']}'"
+            step_prompt = f"Contexto previo: '{current_context}'" if i > 0 else f"Pregunta inicial: '{prompt}'"
+            step_prompt += f"\n\nTu tarea específica es: '{step['task_description']}'"
 
             full_step_response = ""
-            # --- ¡¡¡CAMBIO CLAVE AQUÍ!!! ---
-            # Añadimos el número de paso a cada chunk que retransmitimos.
             async for chunk in ia_func(step_prompt):
-                chunk['step'] = step_number 
+                chunk['step'] = step_number
                 yield chunk
                 
-                if chunk.get("full_text"):
-                    full_step_response += chunk["full_text"]
-                elif chunk.get("text"):
-                    full_step_response += chunk["text"]
+                if chunk.get("full_text"): full_step_response += chunk["full_text"]
+                elif chunk.get("text"): full_step_response += chunk["text"]
             
             current_context = full_step_response
-
-    yield {"status": "all_done"}
+            final_results['steps'].append({"ai": ia_name, "response": full_step_response})
+    
+    # --- MENSAJE FINAL MEJORADO ---
+    # Enviamos los resultados completos para que el frontend los guarde.
+    yield {"status": "all_done", "final_results": final_results}
 
 
 @app.route('/api/stream_query')
