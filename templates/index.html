@@ -11,9 +11,11 @@
         .btn { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
         .btn:hover { background-color: #0056b3; }
         #results-container { margin-top: 2em; }
-        .result-block { background: #e9ecef; padding: 1.5em; margin-bottom: 1em; border-radius: 5px; border-left: 5px solid #007bff; }
+        .result-block { background: #f8f9fa; padding: 1.5em; margin-bottom: 1em; border-radius: 5px; border-left: 5px solid #007bff; }
         pre { white-space: pre-wrap; word-wrap: break-word; font-family: "Menlo", "Consolas", monospace; font-size: 14px; }
         .loader { text-align: center; padding: 2em; font-size: 1.2em; color: #555; display: none; }
+        .blinking-cursor { display: inline-block; background-color: #333; width: 8px; height: 1em; animation: blink 1s step-end infinite; }
+        @keyframes blink { from, to { background-color: transparent } 50% { background-color: #333; } }
     </style>
 </head>
 <body>
@@ -21,73 +23,124 @@
         <h1>Multi-AI Communicator 🤖</h1>
         <form id="ai-form">
             <textarea name="prompt" rows="5" placeholder="Escribe tu pregunta aquí..." required></textarea>
-            
-            <input type="radio" id="comp" name="mode" value="comparison" checked>
-            <label for="comp">Modo Comparación</label>
-            
-            <input type="radio" id="chain" name="mode" value="chained">
-            <label for="chain">Modo Encadenado</label>
-            
+            <input type="radio" id="comp" name="mode" value="comparison" checked> <label for="comp">Modo Comparación</label>
+            <input type="radio" id="chain" name="mode" value="chained" disabled> <label for="chain" style="color: #999;">Modo Encadenado (Próximamente)</label>
             <select name="preset">
                 {% for key, preset in presets.items() %}
                 <option value="{{ key }}">{{ preset.description }}</option>
                 {% endfor %}
             </select>
-            
             <br><br>
             <button type="submit" class="btn">Enviar a las IAs</button>
         </form>
 
-        <div class="loader" id="loader">Cargando respuestas... ⏳</div>
+        <div class="loader" id="loader">Esperando respuesta... ⏳</div>
         <div id="results-container"></div>
     </div>
 
     <script>
-
         const form = document.getElementById('ai-form');
         const resultsContainer = document.getElementById('results-container');
         const loader = document.getElementById('loader');
+        let eventSource;
 
-        form.addEventListener('submit', async (event) => {
+        form.addEventListener('submit', (event) => {
             event.preventDefault();
+            if (eventSource) {
+                eventSource.close();
+            }
             loader.style.display = 'block';
-            resultsContainer.innerHTML = '';
+            resultsContainer.innerHTML = '<h2>Resultados:</h2>';
+            createResultBlocks(['Gemini', 'OpenAI']);
+
             const formData = new FormData(form);
-            const data = {
-                prompt: formData.get('prompt'),
-                mode: formData.get('mode'),
-                preset: formData.get('preset')
+            const prompt = encodeURIComponent(formData.get('prompt'));
+            const mode = formData.get('mode');
+            const preset = formData.get('preset');
+
+            eventSource = new EventSource(`/api/stream_query?prompt=${prompt}&mode=${mode}&preset=${preset}`);
+
+            eventSource.onmessage = function(event) {
+                loader.style.display = 'none';
+                const data = JSON.parse(event.data);
+
+                // --- LÓGICA DE CIERRE MEJORADA ---
+                if (data.status === 'all_done') {
+                    console.log("Stream finalizado por el servidor. Conexión cerrada.");
+                    eventSource.close();
+                    // Quitamos los cursores parpadeantes que queden
+                    document.querySelectorAll('.blinking-cursor').forEach(c => c.remove());
+                    return;
+                }
+
+                if (data.error) {
+                    updateAIResult(data.ai || 'Error', data.error, true);
+                    return;
+                }
+                
+                if (data.simulated) {
+                    typewriterEffect(data.ai, data.full_text);
+                } else if (data.text) {
+                    updateAIResult(data.ai, data.text);
+                }
             };
 
-            try {
-                const response = await fetch('/api/query', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
-                if (!response.ok) { throw new Error(`Error del servidor: ${response.statusText}`); }
-                const results = await response.json();
+            eventSource.onerror = function(err) {
+                console.error("Error de EventSource (la conexión puede haberse cerrado):", err);
+                eventSource.close();
                 loader.style.display = 'none';
-                buildResultsHTML(results, data.mode);
-            } catch (error) {
-                loader.style.display = 'none';
-                resultsContainer.innerHTML = `<div class="result-block"><pre>Error: ${error.message}</pre></div>`;
-                console.error('Error en la solicitud fetch:', error);
-            }
+            };
         });
 
-        function buildResultsHTML(results, mode) {
-            let html = '<h2>Resultados:</h2>';
-            if (mode === 'comparison') {
-                for (const [ia, response] of Object.entries(results)) {
-                    html += `<div class="result-block"><h3>${ia}</h3><pre>${response}</pre></div>`;
-                }
-            } else if (mode === 'chained') {
-                results.forEach((step, index) => {
-                    html += `<div class="result-block"><h3>Paso ${index + 1}: ${step.ia_name}</h3><p><strong>Tarea:</strong> ${step.task}</p><pre>${step.response}</pre></div>`;
-                });
+        function createResultBlocks(aiNames) {
+            aiNames.forEach(name => {
+                const block = document.createElement('div');
+                block.className = 'result-block';
+                block.innerHTML = `<h3>${name}</h3><pre id="pre-${name}"><span class="blinking-cursor"></span></pre>`;
+                resultsContainer.appendChild(block);
+            });
+        }
+
+        function updateAIResult(aiName, textChunk, isError = false) {
+            const preElement = document.getElementById(`pre-${aiName}`);
+            if (!preElement) return;
+
+            const cursor = preElement.querySelector('.blinking-cursor');
+            if (cursor) cursor.remove();
+            
+            if (isError) preElement.style.color = 'red';
+            preElement.textContent += textChunk;
+            
+            if (!isError) {
+                const newCursor = document.createElement('span');
+                newCursor.className = 'blinking-cursor';
+                preElement.appendChild(newCursor);
             }
-            resultsContainer.innerHTML = html;
+        }
+
+        function typewriterEffect(aiName, fullText) {
+            const preElement = document.getElementById(`pre-${aiName}`);
+            if (!preElement) return;
+
+            const cursor = preElement.querySelector('.blinking-cursor');
+            if (cursor) cursor.remove();
+
+            let i = 0;
+            const speed = 2; // Velocidad ajustada para ser más rápida
+            const charsPerInterval = 10; // Añadir más caracteres a la vez
+
+            const typingInterval = setInterval(() => {
+                if (i < fullText.length) {
+                    const chars_to_add = Math.min(charsPerInterval, fullText.length - i);
+                    preElement.textContent += fullText.substring(i, i + chars_to_add);
+                    i += chars_to_add;
+                } else {
+                    clearInterval(typingInterval);
+                    const newCursor = document.createElement('span');
+                    newCursor.className = 'blinking-cursor';
+                    preElement.appendChild(newCursor);
+                }
+            }, speed);
         }
     </script>
 </body>
