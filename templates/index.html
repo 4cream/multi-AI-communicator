@@ -8,7 +8,7 @@
         .container { max-width: 900px; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         h1, h2, h3 { color: #333; }
         textarea, select { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; margin-bottom: 1em; }
-        .btn { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
+        .btn { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; transition: background-color 0.2s; }
         #preset-select { display: none; margin-top: 1em; }
         .result-block { position: relative; background: #f8f9fa; padding: 1.5em; margin-bottom: 1em; border-radius: 5px; border-left: 5px solid #007bff; }
         pre { white-space: pre-wrap; word-wrap: break-word; font-family: "Menlo", "Consolas", monospace; font-size: 14px; }
@@ -17,17 +17,24 @@
         .copy-btn:hover { opacity: 1; }
         .copy-btn.copied { background-color: #28a745; }
         .copy-btn:disabled { background-color: #adb5bd; cursor: not-allowed; opacity: 0.5; }
-        /* --- NUEVO CSS PARA EL HISTORIAL --- */
+        
         #history-section { margin-bottom: 2em; border-bottom: 1px solid #dee2e6; padding-bottom: 1em; }
         .history-header { display: flex; justify-content: space-between; align-items: center; }
         #clear-history-btn { background-color: #dc3545; font-size: 12px; padding: 5px 10px; width: auto; }
+        /* --- NUEVO ESTILO PARA EL BOTÓN DE LIMPIAR HISTORIAL DESACTIVADO --- */
+        #clear-history-btn:disabled {
+            background-color: #adb5bd;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
         .history-list { max-height: 200px; overflow-y: auto; margin-top: 1em; }
         .history-item { padding: 10px; border: 1px solid #e9ecef; border-radius: 4px; margin-bottom: 5px; cursor: pointer; transition: background-color 0.2s; }
         .history-item:hover { background-color: #f8f9fa; }
         .history-item strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     </style>
 </head>
-<body onload="loadHistory()"> <div class="container">
+<body onload="loadHistory()">
+    <div class="container">
         <div id="history-section">
             <div class="history-header">
                 <h2>Historial</h2>
@@ -56,7 +63,7 @@
     </div>
 
     <script>
-        // --- TODO EL JAVASCRIPT ---
+        // --- JAVASCRIPT ---
         const form = document.getElementById('ai-form');
         const promptTextarea = document.getElementById('prompt-textarea');
         const resultsContainer = document.getElementById('results-container');
@@ -66,122 +73,35 @@
         const clearHistoryBtn = document.getElementById('clear-history-btn');
         let eventSource;
         
-        // --- NUEVAS FUNCIONES DE HISTORIAL ---
-        function loadHistory() {
-            const history = JSON.parse(localStorage.getItem('ai_conversation_history')) || [];
-            renderHistory(history);
-        }
-
         function renderHistory(history) {
+            // --- ¡¡¡CAMBIO PRINCIPAL AQUÍ!!! ---
+            // Activamos o desactivamos el botón basándonos en si el historial tiene elementos.
             if (history.length === 0) {
                 historyList.innerHTML = '<p>No hay historial todavía.</p>';
-                return;
-            }
-            historyList.innerHTML = '';
-            // Mostramos en orden inverso (lo más nuevo primero)
-            history.slice().reverse().forEach((item, index) => {
-                const div = document.createElement('div');
-                div.className = 'history-item';
-                div.innerHTML = `<strong>${item.prompt}</strong><small>${new Date(item.timestamp).toLocaleString()}</small>`;
-                div.onclick = () => {
-                    // Al hacer clic, rellenamos el prompt y mostramos los resultados guardados
-                    promptTextarea.value = item.prompt;
-                    displayStoredResults(item.results, item.mode);
-                };
-                historyList.appendChild(div);
-            });
-        }
-
-        function saveToHistory(prompt, results, mode) {
-            const history = JSON.parse(localStorage.getItem('ai_conversation_history')) || [];
-            const newEntry = {
-                prompt: prompt,
-                results: results,
-                mode: mode,
-                timestamp: new Date().toISOString()
-            };
-            history.push(newEntry);
-            localStorage.setItem('ai_conversation_history', JSON.stringify(history));
-            renderHistory(history);
-        }
-
-        clearHistoryBtn.addEventListener('click', () => {
-            if (confirm('¿Estás seguro de que quieres borrar todo el historial?')) {
-                localStorage.removeItem('ai_conversation_history');
-                loadHistory(); // Recarga la vista del historial
-            }
-        });
-
-        function displayStoredResults(results, mode) {
-            resultsContainer.innerHTML = '<h2>Resultados (desde el historial):</h2>';
-            if (mode === 'comparison') {
-                for (const aiName in results) {
-                    createResultBlock(aiName, aiName, null);
-                    updateAIResult(aiName, results[aiName]);
-                }
-            } else if (mode === 'chained') {
-                results.steps.forEach((step, index) => {
-                    createResultBlock(step.ai, `Paso ${index + 1}: ${step.ai}`, index + 1);
-                    updateAIResult(index + 1, step.response);
+                clearHistoryBtn.disabled = true; // Desactivar el botón
+            } else {
+                historyList.innerHTML = '';
+                clearHistoryBtn.disabled = false; // Activar el botón
+                history.slice().reverse().forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    div.innerHTML = `<strong>${item.prompt}</strong><small>${new Date(item.timestamp).toLocaleString()}</small>`;
+                    div.onclick = () => {
+                        promptTextarea.value = item.prompt;
+                        displayStoredResults(item.results, item.mode);
+                    };
+                    historyList.appendChild(div);
                 });
             }
-            document.querySelectorAll('.blinking-cursor').forEach(c => c.remove());
-            document.querySelectorAll('.copy-btn').forEach(btn => btn.disabled = false);
-            addCopyFunctionality();
         }
-
-        // --- LÓGICA PRINCIPAL (MODIFICADA) ---
-        document.querySelectorAll('input[name="mode"]').forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                presetSelect.style.display = e.target.value === 'chained' ? 'block' : 'none';
-            });
-        });
-
-        form.addEventListener('submit', (event) => {
-            event.preventDefault();
-            if (eventSource) eventSource.close();
-            
-            loader.style.display = 'block';
-            resultsContainer.innerHTML = '<h2>Resultados:</h2>';
-            
-            const formData = new FormData(form);
-            const mode = formData.get('mode');
-            const prompt = formData.get('prompt'); // Obtenemos el prompt sin codificar para guardarlo
-            const encodedPrompt = encodeURIComponent(prompt);
-            const preset = formData.get('preset');
-
-            if (mode === 'comparison') {
-                createResultBlocks(['Gemini', 'OpenAI']);
-            }
-            
-            eventSource = new EventSource(`/api/stream_query?prompt=${encodedPrompt}&mode=${mode}&preset=${preset}`);
-
-            eventSource.onmessage = function(event) {
-                loader.style.display = 'none';
-                const data = JSON.parse(event.data);
-                const currentMode = document.querySelector('input[name="mode"]:checked').value;
-
-                if (data.status === 'all_done') {
-                    console.log("Stream finalizado.");
-                    eventSource.close();
-                    document.querySelectorAll('.blinking-cursor').forEach(c => c.remove());
-                    document.querySelectorAll('.copy-btn').forEach(btn => btn.disabled = false);
-                    addCopyFunctionality();
-                    // --- GUARDAMOS EN EL HISTORIAL AL FINALIZAR ---
-                    saveToHistory(prompt, data.final_results, currentMode);
-                    return;
-                }
-                
-                // ... (el resto de la lógica onmessage no cambia)
-                if (data.status === 'step_start') { createResultBlock(data.ai, `Paso ${data.step}: ${data.ai} (${data.task})`, data.step); return; }
-                if (data.error) { const identifier = currentMode === 'chained' ? data.step : (data.ai || 'Error'); updateAIResult(identifier, data.error, true); return; }
-                if (data.simulated) { const identifier = currentMode === 'chained' ? data.step : data.ai; typewriterEffect(identifier, data.full_text); } 
-                else if (data.text) { const identifier = currentMode === 'chained' ? data.step : data.ai; updateAIResult(identifier, data.text); }
-            };
-            eventSource.onerror = function(err) { console.error("Error de EventSource:", err); eventSource.close(); loader.style.display = 'none'; };
-        });
         
-        // ... (el resto de funciones: createResultBlock, updateAIResult, etc. no cambian)
+        // El resto de las funciones no necesitan cambios
+        function loadHistory() { const history = JSON.parse(localStorage.getItem('ai_conversation_history')) || []; renderHistory(history); }
+        function saveToHistory(prompt, results, mode) { const history = JSON.parse(localStorage.getItem('ai_conversation_history')) || []; const newEntry = { prompt: prompt, results: results, mode: mode, timestamp: new Date().toISOString() }; history.push(newEntry); localStorage.setItem('ai_conversation_history', JSON.stringify(history)); renderHistory(history); }
+        clearHistoryBtn.addEventListener('click', () => { if (confirm('¿Estás seguro de que quieres borrar todo el historial?')) { localStorage.removeItem('ai_conversation_history'); loadHistory(); } });
+        function displayStoredResults(results, mode) { resultsContainer.innerHTML = '<h2>Resultados (desde el historial):</h2>'; if (mode === 'comparison') { for (const aiName in results) { createResultBlock(aiName, aiName, null); updateAIResult(aiName, results[aiName]); } } else if (mode === 'chained') { results.steps.forEach((step, index) => { createResultBlock(step.ai, `Paso ${index + 1}: ${step.ai}`, index + 1); updateAIResult(index + 1, step.response); }); } document.querySelectorAll('.blinking-cursor').forEach(c => c.remove()); document.querySelectorAll('.copy-btn').forEach(btn => btn.disabled = false); addCopyFunctionality(); }
+        document.querySelectorAll('input[name="mode"]').forEach(radio => { radio.addEventListener('change', (e) => { presetSelect.style.display = e.target.value === 'chained' ? 'block' : 'none'; }); });
+        form.addEventListener('submit', (event) => { event.preventDefault(); if (eventSource) eventSource.close(); loader.style.display = 'block'; resultsContainer.innerHTML = '<h2>Resultados:</h2>'; const formData = new FormData(form); const mode = formData.get('mode'); const prompt = formData.get('prompt'); const encodedPrompt = encodeURIComponent(prompt); const preset = formData.get('preset'); if (mode === 'comparison') { createResultBlocks(['Gemini', 'OpenAI']); } eventSource = new EventSource(`/api/stream_query?prompt=${encodedPrompt}&mode=${mode}&preset=${preset}`); eventSource.onmessage = function(event) { loader.style.display = 'none'; const data = JSON.parse(event.data); const currentMode = document.querySelector('input[name="mode"]:checked').value; if (data.status === 'all_done') { console.log("Stream finalizado."); eventSource.close(); document.querySelectorAll('.blinking-cursor').forEach(c => c.remove()); document.querySelectorAll('.copy-btn').forEach(btn => btn.disabled = false); addCopyFunctionality(); saveToHistory(prompt, data.final_results, currentMode); return; } if (data.status === 'step_start') { createResultBlock(data.ai, `Paso ${data.step}: ${data.ai} (${data.task})`, data.step); return; } if (data.error) { const identifier = currentMode === 'chained' ? data.step : (data.ai || 'Error'); updateAIResult(identifier, data.error, true); return; } if (data.simulated) { const identifier = currentMode === 'chained' ? data.step : data.ai; typewriterEffect(identifier, data.full_text); } else if (data.text) { const identifier = currentMode === 'chained' ? data.step : data.ai; updateAIResult(identifier, data.text); } }; eventSource.onerror = function(err) { console.error("Error de EventSource:", err); eventSource.close(); loader.style.display = 'none'; }; });
         function createResultBlock(aiName, title, step) { const uniqueId = step ? `step-${step}` : aiName; const block = document.createElement('div'); block.className = 'result-block'; block.innerHTML = `<button class="copy-btn" data-target-id="pre-${uniqueId}" disabled>Copiar</button><h3>${title}</h3><pre id="pre-${uniqueId}"><span class="blinking-cursor"></span></pre>`; resultsContainer.appendChild(block); }
         function createResultBlocks(aiNames) { aiNames.forEach(name => createResultBlock(name, name, null)); }
         function updateAIResult(stepOrAiName, textChunk, isError = false) { const id = (typeof stepOrAiName === 'number') ? `pre-step-${stepOrAiName}` : `pre-${stepOrAiName}`; const preElement = document.getElementById(id); if (!preElement) return; const cursor = preElement.querySelector('.blinking-cursor'); if (cursor) cursor.remove(); if (isError) preElement.style.color = 'red'; preElement.textContent += textChunk; if (!isError) { const newCursor = document.createElement('span'); newCursor.className = 'blinking-cursor'; preElement.appendChild(newCursor); } }
