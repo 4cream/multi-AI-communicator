@@ -124,7 +124,7 @@ async def get_openai_response(prompt, system_prompt=None):
 
         response = await asyncio.to_thread(
             openai_client.chat.completions.create,
-            model="gpt-3.5-turbo",
+            model="o4-mini-2025-04-16",
             messages=messages
         )
         return response.choices[0].message.content
